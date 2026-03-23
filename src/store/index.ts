@@ -1,61 +1,12 @@
 import { create } from 'zustand'
 import type { Domain, TreeNode } from '../types'
 import { updateNode, deleteNode, addNodeUnder, makeId } from '../lib/tree'
+import { fetchDomains, createDomain, updateDomain, deleteDomain } from '../lib/supabase'
 
 // Fallback local store (no Supabase needed for dev)
 const STORAGE_KEY = 'skillforge_data'
 
-function loadLocal(): Domain[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : getDefaultDomains()
-  } catch { return getDefaultDomains() }
-}
 
-function saveLocal(domains: Domain[]) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(domains)) } catch {}
-}
-
-function getDefaultDomains(): Domain[] {
-  return [
-    {
-      id: 'd1', name: 'Guitare', color: '#ff6b35', icon: '🎸',
-      tree: [
-        { id:'n1', type:'group', name:'Bases', mode:'sequential', children:[
-          { id:'n1a', type:'group', name:'Accords ouverts', mode:'sequential', children:[
-            { id:'s1', type:'step', name:'Accord Do (C)', done:true, note:'Bien tenir le pouce derrière le manche' },
-            { id:'s2', type:'step', name:'Accord Ré (D)', done:true, note:'' },
-            { id:'s3', type:'step', name:'Accord Mi (Em)', done:false, note:'' },
-            { id:'s4', type:'step', name:'Accord Sol (G)', done:false, note:'' },
-          ]},
-          { id:'n1b', type:'group', name:'Rythme', mode:'sequential', children:[
-            { id:'s5', type:'step', name:'Downstroke régulier', done:false, note:'' },
-            { id:'s6', type:'step', name:'Downstroke + upstroke alterné', done:false, note:'' },
-          ]},
-        ]},
-        { id:'n2', type:'group', name:'Techniques', mode:'random', children:[
-          { id:'s7', type:'step', name:'Hammer-on', done:false, note:'' },
-          { id:'s8', type:'step', name:'Pull-off', done:false, note:'' },
-          { id:'s9', type:'step', name:'Vibrato', done:false, note:'' },
-        ]},
-      ]
-    },
-    {
-      id: 'd2', name: 'Dessin', color: '#4ecdc4', icon: '✏️',
-      tree: [
-        { id:'m1', type:'group', name:'Fondamentaux', mode:'sequential', children:[
-          { id:'t1', type:'step', name:'Dessiner sans lever le crayon', done:true, note:'' },
-          { id:'t2', type:'step', name:'Angles & proportions à l\'œil', done:false, note:'' },
-          { id:'t3', type:'step', name:'Espaces négatifs', done:false, note:'' },
-        ]},
-        { id:'m2', type:'group', name:'Valeurs & Lumière', mode:'sequential', children:[
-          { id:'t4', type:'step', name:'Échelle de gris (5 tons)', done:false, note:'' },
-          { id:'t5', type:'step', name:'Hachures parallèles', done:false, note:'' },
-        ]},
-      ]
-    }
-  ]
-}
 
 interface Store {
   domains: Domain[]
@@ -75,15 +26,10 @@ interface Store {
   addStep: (domainId: string, parentId: string, name: string) => Promise<void>
 }
 
-async function syncToSupabase(_domains: Domain[]) {
-  const url = import.meta.env.VITE_SUPABASE_URL
-  // const key = import.meta.env.VITE_SUPABASE_ANON_KEY
-  if (!url || url.includes('placeholder')) return // skip if not configured
-  // Full sync would happen here via supabase-js
-  // For now, local storage is the source of truth until Supabase is configured
-}
 
-function mutate(
+// SUPPRIMER syncToSupabase entièrement, et remplacer mutate par :
+
+async function mutate(
   get: () => Store,
   set: (s: Partial<Store>) => void,
   domainId: string,
@@ -92,10 +38,10 @@ function mutate(
   const domain = get().domains.find(d => d.id === domainId)
   if (!domain) return
   const newTree = treeMutator(domain.tree)
-  const newDomains = get().domains.map(d => d.id === domainId ? { ...d, tree: newTree } : d)
-  set({ domains: newDomains })
-  saveLocal(newDomains)
-  syncToSupabase(newDomains)
+  // Optimistic update UI
+  set({ domains: get().domains.map(d => d.id === domainId ? { ...d, tree: newTree } : d) })
+  // Sync Supabase
+  await updateDomain(domainId, { tree: newTree })
 }
 
 export const useStore = create<Store>((set, get) => ({
@@ -105,27 +51,38 @@ export const useStore = create<Store>((set, get) => ({
   error: null,
 
   loadDomains: async () => {
-    set({ loading: true })
-    const domains = loadLocal()
+  set({ loading: true, error: null })
+  try {
+    const rows = await fetchDomains()
+    const domains: Domain[] = rows.map(r => ({
+      id: r.id, name: r.name, icon: r.icon, color: r.color, tree: r.tree ?? [],
+    }))
     set({ domains, activeDomainId: domains[0]?.id ?? null, loading: false })
-  },
+  } catch (e: any) {
+    set({ error: e.message, loading: false })
+  }
+},
 
-  addDomain: async (d) => {
-    const full: Domain = { ...d, id: makeId() }
-    const next = [...get().domains, full]
-    set({ domains: next, activeDomainId: full.id })
-    saveLocal(next)
-    syncToSupabase(next)
-  },
+addDomain: async (d) => {
+  const full: Domain = { ...d, id: makeId() }
+  set(s => ({ domains: [...s.domains, full], activeDomainId: full.id }))
+  try {
+    await createDomain({ id: full.id, name: full.name, icon: full.icon, color: full.color, tree: full.tree })
+  } catch (e: any) {
+    set(s => ({ domains: s.domains.filter(x => x.id !== full.id), error: e.message }))
+  }
+},
 
-  removeDomain: async (id) => {
-    const next = get().domains.filter(d => d.id !== id)
-    const newActive = get().activeDomainId === id ? (next[0]?.id ?? null) : get().activeDomainId
-    set({ domains: next, activeDomainId: newActive })
-    saveLocal(next)
-    syncToSupabase(next)
-  },
-
+removeDomain: async (id) => {
+  const prev = get().domains
+  const next = prev.filter(d => d.id !== id)
+  set({ domains: next, activeDomainId: get().activeDomainId === id ? (next[0]?.id ?? null) : get().activeDomainId })
+  try {
+    await deleteDomain(id)
+  } catch (e: any) {
+    set({ domains: prev, error: e.message })
+  }
+},
   setActiveDomain: (id) => set({ activeDomainId: id }),
 
   toggleStep: async (domainId, stepId) => {
