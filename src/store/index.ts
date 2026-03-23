@@ -3,8 +3,6 @@ import type { Domain, TreeNode } from '../types'
 import { updateNode, deleteNode, addNodeUnder, makeId } from '../lib/tree'
 import { fetchDomains, createDomain, updateDomain, deleteDomain } from '../lib/supabase'
 
-// Fallback local store (no Supabase needed for dev)
-const STORAGE_KEY = 'skillforge_data'
 
 
 
