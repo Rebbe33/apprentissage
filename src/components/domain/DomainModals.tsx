@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { Modal, ModalTitle, FormGroup, TextInput, Btn, ColorPicker, IconPicker, DOMAIN_COLORS, DOMAIN_ICONS } from '../ui'
-
 import type { Domain } from '../../types'
 
 interface AddDomainModalProps {
@@ -9,8 +8,8 @@ interface AddDomainModalProps {
 }
 
 export function AddDomainModal({ onClose, onAdd }: AddDomainModalProps) {
-  const [name, setName] = useState('')
-  const [icon, setIcon] = useState(DOMAIN_ICONS[0])
+  const [name, setName]   = useState('')
+  const [icon, setIcon]   = useState(DOMAIN_ICONS[0])
   const [color, setColor] = useState(DOMAIN_COLORS[0])
 
   const submit = () => {
@@ -23,13 +22,9 @@ export function AddDomainModal({ onClose, onAdd }: AddDomainModalProps) {
     <Modal onClose={onClose}>
       <ModalTitle>Nouveau domaine</ModalTitle>
       <FormGroup label="Nom">
-        <TextInput
-          value={name}
-          onChange={e => setName(e.target.value)}
-          placeholder="Ex: Tatouage, Couture..."
-          autoFocus
-          onKeyDown={e => e.key === 'Enter' && submit()}
-        />
+        <TextInput value={name} onChange={e => setName(e.target.value)}
+          placeholder="Ex: Tatouage, Couture..." autoFocus
+          onKeyDown={e => e.key === 'Enter' && submit()}/>
       </FormGroup>
       <FormGroup label="Icône">
         <IconPicker value={icon} onChange={setIcon}/>
@@ -37,7 +32,7 @@ export function AddDomainModal({ onClose, onAdd }: AddDomainModalProps) {
       <FormGroup label="Couleur">
         <ColorPicker value={color} onChange={setColor}/>
       </FormGroup>
-      <div className="flex justify-end gap-2 mt-5">
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
         <Btn onClick={onClose}>Annuler</Btn>
         <Btn variant="primary" onClick={submit}>Créer</Btn>
       </div>
@@ -45,22 +40,18 @@ export function AddDomainModal({ onClose, onAdd }: AddDomainModalProps) {
   )
 }
 
-interface DeleteDomainModalProps {
-  domainName: string
-  onClose: () => void
-  onConfirm: () => void
-}
-
-export function DeleteDomainModal({ domainName, onClose, onConfirm }: DeleteDomainModalProps) {
+export function DeleteDomainModal({ domainName, onClose, onConfirm }: {
+  domainName: string; onClose: () => void; onConfirm: () => void
+}) {
   return (
     <Modal onClose={onClose}>
       <ModalTitle>Supprimer "{domainName}" ?</ModalTitle>
-      <p className="text-[13px] leading-relaxed mb-5" style={{ color: 'var(--text2)' }}>
-        Toutes les compétences, étapes et notes de ce domaine seront supprimées définitivement.
+      <p style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text2)', marginBottom: 20 }}>
+        Toutes les compétences, étapes et notes seront supprimées définitivement.
       </p>
-      <div className="flex justify-end gap-2">
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
         <Btn onClick={onClose}>Annuler</Btn>
-        <Btn variant="danger" onClick={() => { onConfirm(); onClose(); }}>Supprimer</Btn>
+        <Btn variant="danger" onClick={() => { onConfirm(); onClose() }}>Supprimer</Btn>
       </div>
     </Modal>
   )
