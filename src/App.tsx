@@ -3,6 +3,7 @@ import { useStore } from './store'
 import { TreeSidebar } from './components/tree/TreeSidebar'
 import { NodeDetail, EmptyContent } from './components/tree/NodeDetail'
 import { SessionView } from './components/session/SessionView'
+import { GlobalSessionView } from './components/session/GlobalSessionView'
 import { AddDomainModal, DeleteDomainModal } from './components/domain/DomainModals'
 import { AddNodeModal } from './components/tree/AddNodeModal'
 import { ImportModal } from './components/domain/ImportModal'
@@ -17,17 +18,17 @@ export default function App() {
     toggleStep, setNote, addNode, removeNode, toggleMode, addStep,
   } = useStore()
 
-  const [selectedNodeId, setSelectedNodeId]   = useState<string | null>(null)
-  const [sessionNodeId, setSessionNodeId]     = useState<string | null>(null)
-  const [sidebarOpen, setSidebarOpen]         = useState(false)
-  const [showAddDomain, setShowAddDomain]     = useState(false)
-  const [deleteDomainId, setDeleteDomainId]   = useState<string | null>(null)
-  const [showImport, setShowImport]           = useState(false)
-  const [addNodeParent, setAddNodeParent]     = useState<string | null | undefined>(undefined)
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [sessionNodeId, setSessionNodeId]   = useState<string | null>(null)
+  const [globalSession, setGlobalSession]   = useState(false)
+  const [sidebarOpen, setSidebarOpen]       = useState(false)
+  const [showAddDomain, setShowAddDomain]   = useState(false)
+  const [deleteDomainId, setDeleteDomainId] = useState<string | null>(null)
+  const [showImport, setShowImport]         = useState(false)
+  const [addNodeParent, setAddNodeParent]   = useState<string | null | undefined>(undefined)
 
   useEffect(() => { loadDomains() }, [])
 
-  // On desktop, sidebar is always open
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 768px)')
     const handler = (e: MediaQueryListEvent) => { if (e.matches) setSidebarOpen(true) }
@@ -41,16 +42,15 @@ export default function App() {
   const totalPct = totalSteps ? Math.round(totalDone / totalSteps * 100) : 0
 
   const handleTabChange = (id: string) => {
-    setActiveDomain(id); setSelectedNodeId(null); setSessionNodeId(null)
-    // Close sidebar on mobile after tab switch
+    setActiveDomain(id)
+    setSelectedNodeId(null)
+    setSessionNodeId(null)
+    setGlobalSession(false)
     if (window.innerWidth < 768) setSidebarOpen(false)
   }
 
   const handleImport = async (tree: TreeNode[]) => {
-    if (!activeDomainId || !domain) return
-    // merge: append imported nodes to existing tree
-    // merge handled via addNode below
-    // use addNode for each root node
+    if (!activeDomainId) return
     for (const node of tree) {
       await addNode(activeDomainId, null, node)
     }
@@ -71,32 +71,37 @@ export default function App() {
         height: 52, flexShrink: 0,
         background: 'var(--surface)', borderBottom: '1px solid var(--border)',
       }}>
-        {/* Hamburger (mobile only) */}
         {domain && (
           <button className="md:hidden" onClick={() => setSidebarOpen(o => !o)}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text2)', display: 'flex', alignItems: 'center', padding: 4 }}>
             <MenuIcon/>
           </button>
         )}
-
-        {/* Logo */}
         <div style={{ fontFamily: 'Lora, serif', fontWeight: 600, fontSize: 17, color: 'var(--text)', letterSpacing: -.3 }}>
           Skill<span style={{ color: 'var(--accent)' }}>Forge</span>
         </div>
-
-        {/* Domain progress pill */}
         {domain && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 8,
             background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 20,
             padding: '4px 12px 4px 8px', flexShrink: 0 }}>
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: domain.color, flexShrink: 0 }}/>
-            <span style={{ fontSize: 12, color: 'var(--text2)', whiteSpace: 'nowrap' }}>
-              {totalDone}/{totalSteps}
-            </span>
+            <span style={{ fontSize: 12, color: 'var(--text2)', whiteSpace: 'nowrap' }}>{totalDone}/{totalSteps}</span>
             <div style={{ width: 48 }}><ProgressBar pct={totalPct} color={domain.color}/></div>
           </div>
         )}
-
+        {/* Global session button */}
+        {domain && domain.tree.length > 0 && (
+          <button
+            onClick={() => { setGlobalSession(true); setSessionNodeId(null); setSelectedNodeId(null) }}
+            style={{
+              marginLeft: 'auto', padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+              background: globalSession ? domain.color : 'var(--accent-light)',
+              border: `1px solid ${domain.color}`, color: globalSession ? '#fff' : domain.color,
+              cursor: 'pointer', fontFamily: 'DM Sans', transition: 'all .15s', whiteSpace: 'nowrap',
+            }}>
+            ✦ Séance globale
+          </button>
+        )}
         {error && (
           <div style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, background: 'var(--red-light)', color: 'var(--red)', border: '1px solid #f0c0bb' }}>
             ⚠ {error}
@@ -158,7 +163,7 @@ export default function App() {
             <TreeSidebar
               domain={domain} selectedId={selectedNodeId}
               isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)}
-              onSelect={id => { setSelectedNodeId(id); setSessionNodeId(null) }}
+              onSelect={id => { setSelectedNodeId(id); setSessionNodeId(null); setGlobalSession(false) }}
               onAddRoot={() => setAddNodeParent(null)}
               onAddChild={parentId => setAddNodeParent(parentId)}
               onDelete={nodeId => { removeNode(activeDomainId!, nodeId); if (selectedNodeId === nodeId) setSelectedNodeId(null) }}
@@ -166,9 +171,15 @@ export default function App() {
               onImport={() => setShowImport(true)}
             />
 
-            {/* On desktop, push content. On mobile, sidebar overlays. */}
             <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-              {sessionNodeId ? (
+              {globalSession ? (
+                <GlobalSessionView
+                  domain={domain}
+                  onClose={() => setGlobalSession(false)}
+                  onToggleStep={id => toggleStep(activeDomainId!, id)}
+                  onNoteStep={(id, note) => setNote(activeDomainId!, id, note)}
+                />
+              ) : sessionNodeId ? (
                 <SessionView domain={domain} nodeId={sessionNodeId}
                   onClose={() => setSessionNodeId(null)}
                   onToggleStep={id => toggleStep(activeDomainId!, id)}
