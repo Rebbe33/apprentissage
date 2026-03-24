@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useStore } from './store'
 import { TreeSidebar } from './components/tree/TreeSidebar'
-import { NodeDetail } from './components/tree/NodeDetail'
+import { NodeDetail, EmptyContent } from './components/tree/NodeDetail'
 import { SessionView } from './components/session/SessionView'
 import { AddDomainModal, DeleteDomainModal } from './components/domain/DomainModals'
 import { AddNodeModal } from './components/tree/AddNodeModal'
-import { Btn, ProgressBar } from './components/ui'
+import { ImportModal } from './components/domain/ImportModal'
+import { MenuIcon, ProgressBar } from './components/ui'
 import { countDone } from './lib/tree'
 import type { TreeNode } from './types'
 
@@ -16,163 +17,182 @@ export default function App() {
     toggleStep, setNote, addNode, removeNode, toggleMode, addStep,
   } = useStore()
 
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
-  const [sessionNodeId, setSessionNodeId] = useState<string | null>(null)
-  const [showAddDomain, setShowAddDomain] = useState(false)
-  const [deleteDomainId, setDeleteDomainId] = useState<string | null>(null)
-  const [addNodeParent, setAddNodeParent] = useState<string | null | undefined>(undefined)
+  const [selectedNodeId, setSelectedNodeId]   = useState<string | null>(null)
+  const [sessionNodeId, setSessionNodeId]     = useState<string | null>(null)
+  const [sidebarOpen, setSidebarOpen]         = useState(false)
+  const [showAddDomain, setShowAddDomain]     = useState(false)
+  const [deleteDomainId, setDeleteDomainId]   = useState<string | null>(null)
+  const [showImport, setShowImport]           = useState(false)
+  const [addNodeParent, setAddNodeParent]     = useState<string | null | undefined>(undefined)
 
   useEffect(() => { loadDomains() }, [])
+
+  // On desktop, sidebar is always open
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)')
+    const handler = (e: MediaQueryListEvent) => { if (e.matches) setSidebarOpen(true) }
+    if (mq.matches) setSidebarOpen(true)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
 
   const domain = domains.find(d => d.id === activeDomainId)
   const { done: totalDone, total: totalSteps } = domain ? countDone(domain.tree) : { done: 0, total: 0 }
   const totalPct = totalSteps ? Math.round(totalDone / totalSteps * 100) : 0
 
-  const handleAddNode = async (node: TreeNode) => {
-    if (!activeDomainId) return
-    await addNode(activeDomainId, addNodeParent ?? null, node)
-    setAddNodeParent(undefined)
+  const handleTabChange = (id: string) => {
+    setActiveDomain(id); setSelectedNodeId(null); setSessionNodeId(null)
+    // Close sidebar on mobile after tab switch
+    if (window.innerWidth < 768) setSidebarOpen(false)
   }
 
-  const handleTabChange = (id: string) => {
-    setActiveDomain(id)
-    setSelectedNodeId(null)
-    setSessionNodeId(null)
+  const handleImport = async (tree: TreeNode[]) => {
+    if (!activeDomainId || !domain) return
+    // merge: append imported nodes to existing tree
+    // merge handled via addNode below
+    // use addNode for each root node
+    for (const node of tree) {
+      await addNode(activeDomainId, null, node)
+    }
   }
 
   if (loading) return (
-    <div className="flex-1 flex items-center justify-center flex-col gap-4" style={{ color: 'var(--text3)' }}>
-      <div className="text-2xl animate-spin">⚙</div>
-      <span className="text-[13px]">Chargement...</span>
+    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 14, color: 'var(--text3)' }}>
+      <div style={{ fontSize: 28 }}>⏳</div>
+      <span style={{ fontSize: 13 }}>Chargement...</span>
     </div>
   )
 
   return (
     <>
-      <div className="flex items-center gap-4 px-5 h-[52px] flex-shrink-0"
-        style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-        <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 18, letterSpacing: -0.5 }}>
+      {/* ── TOPBAR ─────────────────────────────────────── */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 12, padding: '0 16px',
+        height: 52, flexShrink: 0,
+        background: 'var(--surface)', borderBottom: '1px solid var(--border)',
+      }}>
+        {/* Hamburger (mobile only) */}
+        {domain && (
+          <button className="md:hidden" onClick={() => setSidebarOpen(o => !o)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text2)', display: 'flex', alignItems: 'center', padding: 4 }}>
+            <MenuIcon/>
+          </button>
+        )}
+
+        {/* Logo */}
+        <div style={{ fontFamily: 'Lora, serif', fontWeight: 600, fontSize: 17, color: 'var(--text)', letterSpacing: -.3 }}>
           Skill<span style={{ color: 'var(--accent)' }}>Forge</span>
         </div>
+
+        {/* Domain progress pill */}
         {domain && (
-          <div className="flex items-center gap-2.5 ml-4">
-            <div className="w-2 h-2 rounded-full" style={{ background: domain.color }}/>
-            <span className="text-[12px]" style={{ color: 'var(--text2)' }}>{totalDone}/{totalSteps} étapes</span>
-            <div className="w-20"><ProgressBar pct={totalPct} color={domain.color}/></div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 8,
+            background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 20,
+            padding: '4px 12px 4px 8px', flexShrink: 0 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: domain.color, flexShrink: 0 }}/>
+            <span style={{ fontSize: 12, color: 'var(--text2)', whiteSpace: 'nowrap' }}>
+              {totalDone}/{totalSteps}
+            </span>
+            <div style={{ width: 48 }}><ProgressBar pct={totalPct} color={domain.color}/></div>
           </div>
         )}
+
         {error && (
-          <div className="ml-4 text-[11px] px-2 py-1 rounded" style={{ background: 'rgba(255,71,87,.15)', color: '#ff4757' }}>
+          <div style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, background: 'var(--red-light)', color: 'var(--red)', border: '1px solid #f0c0bb' }}>
             ⚠ {error}
           </div>
         )}
-        <div className="ml-auto flex gap-2">
-          <Btn size="sm" onClick={() => {
-            const a = Object.assign(document.createElement('a'), {
-              href: URL.createObjectURL(new Blob([JSON.stringify({ domains }, null, 2)], { type: 'application/json' })),
-              download: 'skillforge-backup.json',
-            })
-            a.click()
-          }}>↓ Exporter</Btn>
-        </div>
       </div>
 
-      <div className="flex items-center gap-0.5 px-5 h-[44px] flex-shrink-0 overflow-x-auto"
-        style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+      {/* ── DOMAIN TABS ────────────────────────────────── */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 2, padding: '0 12px',
+        height: 42, flexShrink: 0, overflowX: 'auto',
+        background: 'var(--surface)', borderBottom: '1px solid var(--border)',
+      }}>
         {domains.map(d => {
           const { done, total } = countDone(d.tree)
           const pct = total ? Math.round(done / total * 100) : 0
           const isActive = d.id === activeDomainId
           return (
-            <button key={d.id}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded text-[12px] font-medium transition-all whitespace-nowrap flex-shrink-0"
+            <button key={d.id} onClick={() => handleTabChange(d.id)}
               style={{
-                background: isActive ? 'var(--surface2)' : 'transparent',
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '5px 10px', borderRadius: 8, fontSize: 12, fontWeight: isActive ? 600 : 400,
+                whiteSpace: 'nowrap', flexShrink: 0, cursor: 'pointer', transition: 'all .15s',
+                background: isActive ? 'var(--accent-light)' : 'transparent',
                 border: `1px solid ${isActive ? 'var(--border)' : 'transparent'}`,
-                color: isActive ? 'var(--text)' : 'var(--text2)',
-                fontFamily: 'JetBrains Mono, monospace', cursor: 'pointer',
-              }}
-              onClick={() => handleTabChange(d.id)}>
-              <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: d.color }}/>
+                color: isActive ? 'var(--accent)' : 'var(--text2)',
+                fontFamily: 'DM Sans, sans-serif',
+              }}>
+              <div style={{ width: 7, height: 7, borderRadius: '50%', background: d.color, flexShrink: 0 }}/>
               {d.icon} {d.name}
-              {total > 0 && <span className="text-[10px]" style={{ color: 'var(--text3)' }}>{pct}%</span>}
-              <button className="ml-1 opacity-40 hover:opacity-100 text-[14px] leading-none px-0.5 transition-opacity"
-                style={{ color: '#ff4757', cursor: 'pointer', background: 'none', border: 'none' }}
-                onClick={e => { e.stopPropagation(); setDeleteDomainId(d.id) }}>×</button>
+              {total > 0 && <span style={{ fontSize: 10, color: isActive ? 'var(--accent)' : 'var(--text3)', opacity: .7 }}>{pct}%</span>}
+              <button onClick={e => { e.stopPropagation(); setDeleteDomainId(d.id) }}
+                style={{ marginLeft: 2, opacity: .35, fontSize: 14, lineHeight: 1, color: 'var(--red)', cursor: 'pointer', background: 'none', border: 'none', transition: 'opacity .1s' }}
+                onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+                onMouseLeave={e => (e.currentTarget.style.opacity = '.35')}>×</button>
             </button>
           )
         })}
-        <button className="px-2 py-1 rounded text-[18px] transition-colors"
-          style={{ color: 'var(--text3)', cursor: 'pointer', background: 'none', border: 'none', fontFamily: 'monospace' }}
-          onClick={() => setShowAddDomain(true)}>＋</button>
+        <button onClick={() => setShowAddDomain(true)}
+          style={{ padding: '4px 10px', borderRadius: 8, fontSize: 16, color: 'var(--text3)', cursor: 'pointer', background: 'none', border: 'none', transition: 'color .1s', flexShrink: 0, fontFamily: 'sans-serif' }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--accent)')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--text3)')}>＋</button>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      {/* ── MAIN ───────────────────────────────────────── */}
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
         {!domain ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-4" style={{ color: 'var(--text3)' }}>
-            <div className="text-5xl">🎯</div>
-            <h2 style={{ fontFamily: 'Syne', fontSize: 22, color: 'var(--text2)' }}>Aucun domaine</h2>
-            <p className="text-[12px] text-center leading-relaxed max-w-[260px]">
-              Crée ton premier domaine d'apprentissage avec le bouton ＋
-            </p>
-            <Btn variant="primary" onClick={() => setShowAddDomain(true)}>＋ Nouveau domaine</Btn>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: 'var(--text3)', padding: 32, textAlign: 'center' }}>
+            <div style={{ fontSize: 48 }}>🎯</div>
+            <div style={{ fontFamily: 'Lora, serif', fontSize: 22, color: 'var(--text2)', fontWeight: 600 }}>Aucun domaine</div>
+            <div style={{ fontSize: 13, lineHeight: 1.7, maxWidth: 260 }}>Crée ton premier domaine d'apprentissage.</div>
+            <button onClick={() => setShowAddDomain(true)}
+              style={{ padding: '9px 20px', borderRadius: 8, background: 'var(--accent)', color: '#fff', border: 'none', cursor: 'pointer', fontFamily: 'DM Sans', fontSize: 13, fontWeight: 500 }}>
+              ＋ Nouveau domaine
+            </button>
           </div>
         ) : (
           <>
             <TreeSidebar
-              domain={domain}
-              selectedId={selectedNodeId}
+              domain={domain} selectedId={selectedNodeId}
+              isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)}
               onSelect={id => { setSelectedNodeId(id); setSessionNodeId(null) }}
               onAddRoot={() => setAddNodeParent(null)}
               onAddChild={parentId => setAddNodeParent(parentId)}
-              onDelete={nodeId => {
-                removeNode(activeDomainId!, nodeId)
-                if (selectedNodeId === nodeId) setSelectedNodeId(null)
-              }}
+              onDelete={nodeId => { removeNode(activeDomainId!, nodeId); if (selectedNodeId === nodeId) setSelectedNodeId(null) }}
               onToggleMode={nodeId => toggleMode(activeDomainId!, nodeId)}
+              onImport={() => setShowImport(true)}
             />
-            <div className="flex-1 overflow-hidden flex flex-col">
+
+            {/* On desktop, push content. On mobile, sidebar overlays. */}
+            <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
               {sessionNodeId ? (
-                <SessionView
-                  domain={domain} nodeId={sessionNodeId}
+                <SessionView domain={domain} nodeId={sessionNodeId}
                   onClose={() => setSessionNodeId(null)}
                   onToggleStep={id => toggleStep(activeDomainId!, id)}
-                  onNoteStep={(id, note) => setNote(activeDomainId!, id, note)}
-                />
+                  onNoteStep={(id, note) => setNote(activeDomainId!, id, note)}/>
               ) : selectedNodeId ? (
-                <NodeDetail
-                  domain={domain} nodeId={selectedNodeId}
+                <NodeDetail domain={domain} nodeId={selectedNodeId}
                   onToggleStep={id => toggleStep(activeDomainId!, id)}
                   onNoteStep={(id, note) => setNote(activeDomainId!, id, note)}
                   onAddStep={(parentId, name) => addStep(activeDomainId!, parentId, name)}
                   onStartSession={id => setSessionNodeId(id)}
-                />
+                  onOpenSidebar={() => setSidebarOpen(true)}/>
               ) : (
-                <div className="flex-1 flex flex-col items-center justify-center gap-4" style={{ color: 'var(--text3)' }}>
-                  <div className="text-5xl">{domain.icon}</div>
-                  <h3 style={{ fontFamily: 'Syne', fontSize: 20, color: 'var(--text2)' }}>{domain.name}</h3>
-                  <p className="text-[12px] text-center leading-relaxed max-w-[260px]">
-                    Sélectionne un nœud dans l'arborescence pour voir ses étapes ou lancer une séance.
-                  </p>
-                  {domain.tree.length === 0 && (
-                    <Btn variant="primary" onClick={() => setAddNodeParent(null)}>+ Créer l'arborescence</Btn>
-                  )}
-                </div>
+                <EmptyContent domain={domain} onOpenSidebar={() => setSidebarOpen(true)}/>
               )}
             </div>
           </>
         )}
       </div>
 
+      {/* ── MODALS ─────────────────────────────────────── */}
       {showAddDomain && <AddDomainModal onClose={() => setShowAddDomain(false)} onAdd={d => addDomain(d)}/>}
-      {addNodeParent !== undefined && <AddNodeModal onClose={() => setAddNodeParent(undefined)} onAdd={handleAddNode}/>}
-      {deleteDomainId && (
-        <DeleteDomainModal
-          domainName={domains.find(d => d.id === deleteDomainId)?.name ?? ''}
-          onClose={() => setDeleteDomainId(null)}
-          onConfirm={() => removeDomain(deleteDomainId!)}
-        />
-      )}
+      {addNodeParent !== undefined && <AddNodeModal onClose={() => setAddNodeParent(undefined)} onAdd={node => { if (activeDomainId) addNode(activeDomainId, addNodeParent ?? null, node); setAddNodeParent(undefined) }}/>}
+      {deleteDomainId && <DeleteDomainModal domainName={domains.find(d => d.id === deleteDomainId)?.name ?? ''} onClose={() => setDeleteDomainId(null)} onConfirm={() => removeDomain(deleteDomainId!)}/>}
+      {showImport && domain && <ImportModal domainName={domain.name} onClose={() => setShowImport(false)} onImport={handleImport}/>}
     </>
   )
 }
