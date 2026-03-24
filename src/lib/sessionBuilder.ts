@@ -5,38 +5,32 @@ export interface SessionStep {
   name: string
   note: string
   done: boolean
-  path: string[]       // breadcrumb ex: ["Bases", "Accords ouverts"]
-  branchIndex: number  // which top-level branch it came from
+  path: string[]
+  branchIndex: number
 }
-
-// ── Collect "leaf groups" = groupes qui contiennent directement des étapes ──
-// On travaille au niveau des groupes feuilles pour respecter sequential/random
 
 interface LeafGroup {
   path: string[]
   mode: 'sequential' | 'random'
   steps: Array<{ id: string; name: string; note: string; done: boolean }>
-  branchIndex: number  // index de la branche racine
+  branchIndex: number
 }
 
 function collectLeafGroups(
   nodes: TreeNode[],
   path: string[] = [],
   branchIndex: number = 0,
-  rootIndex: number = 0
 ): LeafGroup[] {
   const result: LeafGroup[] = []
 
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i]
-    const bi = path.length === 0 ? i : branchIndex // track root branch index
+    const bi = path.length === 0 ? i : branchIndex
 
     if (node.type === 'step') continue
 
     const group = node as GroupNode
     const currentPath = [...path, group.name]
-
-    // Check if this group has direct step children
     const directSteps = group.children.filter(c => c.type === 'step')
     const subGroups   = group.children.filter(c => c.type === 'group')
 
@@ -54,16 +48,13 @@ function collectLeafGroups(
       })
     }
 
-    // Recurse into sub-groups
     if (subGroups.length > 0) {
-      result.push(...collectLeafGroups(subGroups, currentPath, bi, rootIndex))
+      result.push(...collectLeafGroups(subGroups, currentPath, bi))
     }
   }
 
   return result
 }
-
-// ── Pick next undone step from a leaf group, respecting its mode ──
 
 function pickFromLeafGroup(
   group: LeafGroup,
@@ -72,66 +63,66 @@ function pickFromLeafGroup(
   const undone = group.steps.filter(s => !s.done && !alreadyPickedIds.has(s.id))
   if (undone.length === 0) return null
 
-  let chosen
-  if (group.mode === 'sequential') {
-    // First undone step in order
-    chosen = undone[0]
-  } else {
-    // Random undone step
-    chosen = undone[Math.floor(Math.random() * undone.length)]
-  }
+  const chosen = group.mode === 'sequential'
+    ? undone[0]  // respect order inside the branch
+    : undone[Math.floor(Math.random() * undone.length)]
 
-  return {
-    id: chosen.id,
-    name: chosen.name,
-    note: chosen.note,
-    path: group.path,
-    branchIndex: group.branchIndex,
-  }
+  return { id: chosen.id, name: chosen.name, note: chosen.note, path: group.path, branchIndex: group.branchIndex }
 }
 
-// ── Main builder ──────────────────────────────────────────────────
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
 
 export function buildGlobalSession(tree: TreeNode[], count: number): SessionStep[] {
   const leafGroups = collectLeafGroups(tree)
-
   if (leafGroups.length === 0) return []
 
   const picked: SessionStep[] = []
   const pickedIds = new Set<string>()
 
-  // Round-robin over leaf groups, skip exhausted ones
-  let attempts = 0
-  let groupIndex = 0
-  const maxAttempts = count * leafGroups.length * 2 // safety
+  // Shuffle the groups order for each session — branches are visited randomly
+  // but within each sequential branch, internal order is preserved
+  let availableGroups = shuffle(leafGroups)
 
-  while (picked.length < count && attempts < maxAttempts) {
-    attempts++
+  let pass = 0
+  while (picked.length < count) {
+    // Filter groups that still have undone steps
+    const stillAvailable = availableGroups.filter(g =>
+      g.steps.some(s => !s.done && !pickedIds.has(s.id))
+    )
+    if (stillAvailable.length === 0) break
 
-    // Cycle through groups in rotation
-    const group = leafGroups[groupIndex % leafGroups.length]
-    groupIndex++
+    // Re-shuffle each pass for more variety
+    const groupsThisPass = shuffle(stillAvailable)
 
-    const step = pickFromLeafGroup(group, pickedIds)
-    if (step) {
-      pickedIds.add(step.id)
-      picked.push({
-        id: step.id,
-        name: step.name,
-        note: step.note,
-        done: false,
-        path: step.path,
-        branchIndex: step.branchIndex,
-      })
+    let pickedThisPass = 0
+    for (const group of groupsThisPass) {
+      if (picked.length >= count) break
+      const step = pickFromLeafGroup(group, pickedIds)
+      if (step) {
+        pickedIds.add(step.id)
+        picked.push({
+          id: step.id,
+          name: step.name,
+          note: step.note,
+          done: false,
+          path: step.path,
+          branchIndex: step.branchIndex,
+        })
+        pickedThisPass++
+      }
     }
 
-    // If we've cycled through all groups without finding enough, stop
-    if (groupIndex > 0 && groupIndex % leafGroups.length === 0) {
-      const totalAvailable = leafGroups.reduce((acc, g) =>
-        acc + g.steps.filter(s => !s.done && !pickedIds.has(s.id)).length, 0
-      )
-      if (totalAvailable === 0) break
-    }
+    // Safety: if nothing was picked this pass, stop
+    if (pickedThisPass === 0) break
+    pass++
+    if (pass > 10) break
   }
 
   return picked
